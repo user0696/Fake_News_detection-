@@ -1,0 +1,162 @@
+import tensorflow as tf
+import pandas as pd 
+import numpy as np
+import matplotlib.pyplot as plt 
+import seaborn as sns
+import wordcloud
+from wordcloud import WordCloud, STOPWORDS
+import nltk
+from nltk.stem import PorterStemmer, WordNetLemmatizer
+from nltk.corpus import stopwords
+from nltk.tokenize import word_tokenize, sent_tokenize
+import gensim
+from gensim.utils import simple_preprocess
+from gensim.parsing.preprocessing import STOPWORDS
+import keras
+from tensorflow.keras.preprocessing.text  import one_hot, Tokenizer
+from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten,Embedding ,Input, LSTM, Conv1D, MaxPool1D, Bidirectional 
+from tensorflow.keras.models import Model
+
+df_true=pd.read_csv("/content/drive/MyDrive/dataset of fake news detection/True.csv")
+df_fake=pd.read_csv("/content/drive/MyDrive/dataset of fake news detection/Fake.csv")
+
+df_fake
+
+df_true.isnull().sum()
+df_fake.isnull().sum()
+
+df_true.info()
+df_fake.info()
+
+df_true["isFake"]=0
+df_true.head()
+
+df_fake["isFake"]=1
+df_fake.head()
+
+df=pd.concat([df_true,df_fake]).reset_index(drop=True)
+df
+
+df.drop(columns=['date'], inplace=True)
+
+df["Original"]=df['title'] + " " +df["text"]
+df.head()
+
+df["Original"][0]
+
+nltk.download('stopwords')
+
+from nltk.corpus import stopwords
+Stop_words=stopwords.words("english")
+Stop_words.extend(['from','subject','re','edu','use'])
+
+def preprocess(text):
+  result=[]
+  for token in gensim.utils.simple_preprocess(text):
+    if token in gensim.parsing.preprocessing.STOPWORDS and len(token)>3 and token not in Stop_words:
+      result.append(token)
+  return result
+
+Stop_words
+
+df["Clean"]=df["Original"].apply(preprocess)
+df
+
+df["Original"][0]
+print(df["Clean"][0])
+df
+
+list_of_words=[]
+for i in df.Clean:
+  for j in i:
+    list_of_words.append(j)
+    
+list_of_words
+
+len(list_of_words)
+total=len(list(set(list_of_words)))
+total
+
+df["Clean_join"]=df["Clean"].apply(lambda x: " ".join(x))
+df
+
+df["Clean_join"][0]
+df
+
+plt.figure(figsize=(8,8))
+sns.countplot(y="subject",data=df)
+
+plt.figure(figsize=(8,8))
+sns.countplot(y="isFake",data=df)
+
+plt.figure(figsize=(20,20))
+wc=WordCloud(max_words=2000,width=1600,height=800,stopwords=Stop_words).generate(" ".join(df[df.isFake==0].Clean_join))
+plt.imshow(wc,interpolation="bilinear" ) 
+
+nltk.download('punkt')
+nltk.word_tokenize(df['Clean_join'][0])
+
+maxlen= -1
+for doc in df.Clean_join:
+  tokens=nltk.word_tokenize(doc)
+  if(maxlen<len(tokens)):
+    maxlen=len(tokens)
+print("The maximum number of words =",maxlen)
+
+import plotly.express as px
+fig = px.histogram(x=[len(nltk.word_tokenize(x)) for x in df.Clean_join], nbins=100)
+fig.show()
+
+from sklearn.model_selection import train_test_split
+x_train,x_test,y_train,y_test=train_test_split(df.Clean_join,df.isFake,test_size=0.2)
+
+from nltk import word_tokenize
+
+tokenizer = Tokenizer(num_words=total)
+tokenizer.fit_on_texts(x_train)
+train_sequences = tokenizer.texts_to_sequences(x_train)
+test_sequences = tokenizer.texts_to_sequences(x_test)
+
+len(train_sequences)
+len(test_sequences)
+
+train_sequences
+print("the encoding of document's:\n",df.Clean_join[0],"\n is:",train_sequences[0])
+
+padded_train=pad_sequences(train_sequences,maxlen=321,padding="post",truncating="post")
+padded_test=pad_sequences(test_sequences,maxlen=321,padding="post",truncating="post")
+for i,doc in enumerate(padded_train[:2]):
+  print("The padded encoding for document",i+1,"is:",doc)
+  
+model=Sequential()
+model.add(Embedding(total,output_dim=128))
+model.add(Bidirectional(LSTM(128)))
+model.add(Dense(128,activation="relu"))
+model.add(Dense(1,activation="sigmoid"))
+model.compile(optimizer="adam",loss="binary_crossentropy",metrics=["acc"])
+model.summary()
+
+total
+
+y_train=np.asarray(y_train)
+model.fit(padded_train,y_train, batch_size=64,validation_split=0.1,epochs=2)
+
+pred=model.predict(padded_train)
+
+Prediction=[]
+for i in range (len(pred)):
+  if pred[i].item()>0.5:
+    Prediction.append(1)
+  else:
+    Prediction.append(0)
+    
+from sklearn.metrics import accuracy_score
+accuracy=accuracy_score(list(y_test),Prediction)
+print("Model Accuracy:",accuracy)
+
+from sklearn.metrics import confusion_matrix
+CM=confusion_matrix(list(y_test),Prediction)
+plt.figure(figsize=(25,25))
+sns.heatmap(CM, annot=True)
